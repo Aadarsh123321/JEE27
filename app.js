@@ -35,14 +35,61 @@ const typeDelayMs=90,deleteDelayMs=80,holdDelayMs=2500,pauseDelayMs=500,typedTex
 function loopTypewriter(){const characters=Array.from(textToType);if(isDeleting){if(charIndex>0){charIndex--;typedTextSpan.textContent=characters.slice(0,charIndex).join('');typingTimeout=setTimeout(loopTypewriter,deleteDelayMs);}else{isDeleting=false;typingTimeout=setTimeout(loopTypewriter,pauseDelayMs);}}else{if(charIndex<characters.length){charIndex++;typedTextSpan.textContent=characters.slice(0,charIndex).join('');typingTimeout=setTimeout(loopTypewriter,typeDelayMs);}else{isDeleting=true;typingTimeout=setTimeout(loopTypewriter,holdDelayMs);}}}
 function updateBrandText(newText){clearTimeout(typingTimeout);textToType=newText.toUpperCase();charIndex=0;isDeleting=false;typedTextSpan.textContent="";loopTypewriter();}
 
-// --- 3. FIREBASE AUTH LOGIC & GLOBAL LEADERBOARD DB ---
-const firebaseConfig={apiKey:"AIzaSyAC-a6voLBRNAXTBtop8lBe4KyWCscH0EU",authDomain:"jeebbk27.firebaseapp.com",projectId:"jeebbk27",storageBucket:"jeebbk27.firebasestorage.app",messagingSenderId:"689701410537",appId:"1:689701410537:web:63f8a018393708c4128278",measurementId:"G-1G15B8W9CG"};
+// --- 3. NEW FIREBASE CONFIG & LIVE LEADERBOARD LOGIC ---
+const firebaseConfig = {
+  apiKey: "AIzaSyAH22AT6fP9cuDAFq8sXBLi9GFu9cvWgE4",
+  authDomain: "jee-bb.firebaseapp.com",
+  projectId: "jee-bb",
+  storageBucket: "jee-bb.firebasestorage.app",
+  messagingSenderId: "341400606572",
+  appId: "1:341400606572:web:6b992fd542d29e9da68549",
+  measurementId: "G-3CMSTEF4CR"
+};
 if(!firebase.apps.length){firebase.initializeApp(firebaseConfig);}
+
 const auth=firebase.auth();
 const db=firebase.firestore(); 
 const loginBtn=document.getElementById('btn-login'),profileWrapper=document.getElementById('profile-wrapper'),dropdown=document.getElementById('profile-dropdown');
 
-let globalSolvedCount = parseInt(localStorage.getItem('user_total_score')||'0');
+// STRICT FIX: Live Global Leaderboard
+function initLiveLeaderboard() {
+    const lbContainer = document.getElementById('lb-dynamic-content');
+    const lbEmpty = document.getElementById('lb-empty-state');
+    
+    db.collection("users").orderBy("questionsSolved", "desc").limit(50)
+      .onSnapshot((querySnapshot) => {
+        if (querySnapshot.empty) {
+            lbEmpty.style.display = 'block';
+            lbContainer.style.display = 'none';
+            return;
+        }
+        lbEmpty.style.display = 'none';
+        lbContainer.style.display = 'block';
+        lbContainer.innerHTML = ''; 
+
+        let rank = 1;
+        querySnapshot.forEach((doc) => {
+            const data = doc.data();
+            const score = data.questionsSolved || 0;
+            const rowHTML = `
+            <div class="lb-row">
+                <div class="lb-user">
+                    <div class="rank-badge">#${rank}</div>
+                    <img class="small-avatar" src="${data.photoURL}" alt="Avatar" referrerpolicy="no-referrer">
+                    <div>
+                        <div class="lb-name">${data.name}</div>
+                        <div class="lb-stats">JEE Advanced Aspirant</div>
+                    </div>
+                </div>
+                <div class="lb-score">${score} Qns Solved</div>
+            </div>`;
+            lbContainer.insertAdjacentHTML('beforeend', rowHTML);
+            rank++;
+        });
+    }, (error) => {
+        console.error("Live Leaderboard Error: ", error);
+    });
+}
 
 auth.onAuthStateChanged(user=>{
     if(user){
@@ -56,7 +103,6 @@ auth.onAuthStateChanged(user=>{
         document.getElementById('user-greeting').textContent=`Hi, ${firstName}!`;
         updateBrandText(firstName);
         
-        // FIX: Read Firestore First, ensure indexing exists for leaderboard.
         const userDocRef = db.collection("users").doc(user.uid);
         userDocRef.get().then(docSnap => {
             let data = {
@@ -64,14 +110,10 @@ auth.onAuthStateChanged(user=>{
                 photoURL: photoURL,
                 email: user.email
             };
-            if (!docSnap.exists || docSnap.data().questionsSolved === undefined) {
-                data.questionsSolved = 0; // Initialize so orderBy works!
-            } else {
-                // Sync Local Score perfectly with Cloud DB upon Reload!
-                globalSolvedCount = docSnap.data().questionsSolved;
-                localStorage.setItem('user_total_score', globalSolvedCount);
+            if (!docSnap.exists) {
+                data.questionsSolved = 0; // Initialize so sorting works instantly
             }
-            userDocRef.set(data, { merge: true }).then(() => fetchGlobalLeaderboard());
+            userDocRef.set(data, { merge: true });
         });
         
     }else{
@@ -79,8 +121,6 @@ auth.onAuthStateChanged(user=>{
         profileWrapper.style.display='none';
         dropdown.classList.remove('show');
         updateBrandText("U2");
-        document.getElementById('lb-empty-state').style.display='block';
-        document.getElementById('lb-dynamic-content').style.display='none';
     }
 });
 
@@ -89,52 +129,6 @@ function signOutUser(){auth.signOut().then(()=>{dropdown.classList.remove('show'
 function toggleDropdown(){dropdown.classList.toggle('show');}
 document.addEventListener('click',function(event){if(profileWrapper.style.display==='block'){const isClickInside=profileWrapper.contains(event.target);if(!isClickInside&&dropdown.classList.contains('show')){dropdown.classList.remove('show');}}});
 
-// --- NEW GLOBAL LEADERBOARD LOGIC ---
-async function fetchGlobalLeaderboard() {
-    const lbContainer = document.getElementById('lb-dynamic-content');
-    const lbEmpty = document.getElementById('lb-empty-state');
-    
-    try {
-        const querySnapshot = await db.collection("users")
-            .orderBy("questionsSolved", "desc")
-            .limit(50)
-            .get();
-
-        if (querySnapshot.empty) {
-            lbEmpty.style.display = 'block';
-            lbContainer.style.display = 'none';
-            return;
-        }
-
-        lbEmpty.style.display = 'none';
-        lbContainer.style.display = 'block';
-        lbContainer.innerHTML = ''; 
-
-        let rank = 1;
-        querySnapshot.forEach((doc) => {
-            const data = doc.data();
-            const score = data.questionsSolved || 0;
-            
-            const rowHTML = `
-            <div class="lb-row">
-                <div class="lb-user">
-                    <div class="rank-badge">#${rank}</div>
-                    <img class="small-avatar" src="${data.photoURL}" alt="Avatar" referrerpolicy="no-referrer">
-                    <div>
-                        <div class="lb-name">${data.name}</div>
-                        <div class="lb-stats">JEE Advanced Aspirant</div>
-                    </div>
-                </div>
-                <div class="lb-score">${score} Qns Solved</div>
-            </div>`;
-            
-            lbContainer.insertAdjacentHTML('beforeend', rowHTML);
-            rank++;
-        });
-    } catch (error) {
-        console.error("Error fetching leaderboard:", error);
-    }
-}
 
 // --- 4. UI LOGIC (Tabs, Themes, Sidebar Navigation) ---
 function switchTab(tabId){
@@ -146,7 +140,6 @@ function switchTab(tabId){
     const searchBar=document.getElementById('search-input');
     if(tabId==='practice'){searchBar.style.display='block'; updateChapterProgress();}
     else{searchBar.style.display='none';}
-    if(tabId==='leaderboard'){fetchGlobalLeaderboard();}
 }
 function toggleTheme(){const body=document.body,themeBtn=document.getElementById('theme-toggle');body.classList.toggle('light-mode');if(body.classList.contains('light-mode')){themeBtn.textContent='☼';}else{themeBtn.textContent='☾';}}
 function togglePanel(){document.getElementById('info-panel').classList.toggle('open');}
@@ -163,17 +156,13 @@ function loadExercises(chapterName,element){
     updateChapterProgress();
 }
 
-// --- FIX: PERCENTAGE TRACKING LOGIC ---
 function updateChapterProgress() {
     document.querySelectorAll('.chapter-content').forEach(ch => {
-        // Bulletproof reading: uses HTML attributes instead of parsing text nodes
         let rawName = ch.getAttribute('data-chapter');
         if (!rawName) return; 
-        
         let prefix = rawName.replace(/\s+/g,'_') + '_';
         let totalQ = 0;
         let solvedQ = 0;
-        
         for(let i = 0; i < localStorage.length; i++) {
             let key = localStorage.key(i);
             if(key && key.startsWith(prefix)) {
@@ -186,28 +175,31 @@ function updateChapterProgress() {
                 } catch(e) {}
             }
         }
-        
         let pct = totalQ === 0 ? 0 : Math.round((solvedQ / totalQ) * 100);
         let safeId = 'prog-' + rawName.replace(/\s+/g,'').replace(/&/g,'and');
         let progSpan = document.getElementById(safeId);
         if(progSpan) {
             progSpan.innerText = pct + '% Completed';
-            if(pct === 100) {
-                progSpan.style.color = '#fff';
-                progSpan.style.background = '#10b981';
-            }
+            if(pct === 100) { progSpan.style.color = '#fff'; progSpan.style.background = '#10b981'; }
         }
     });
 }
 
-// --- 5. PRACTICE MODE DYNAMIC SCRIPT INTEGRATION & LOGIC ---
+// --- 5. PRACTICE MODE DYNAMIC SCRIPT INTEGRATION & CLOUD SYNC LOGIC ---
 let exData={ex:"",ch:"",id:""},cIdx=0,tmr=null;
 let qData=[];
 const sampleQuestions=[{id:1,t:'Fallback Question: Test loaded without external script.',o:["A","B","C","D"],c:0,s:"This is a sample because the specific JS file was not linked yet."}];
 
 function loadTestScript(chapter, exName, scriptSrc) {
+    // STRICT FIX: Block entry until user is signed in!
+    const user = firebase.auth().currentUser;
+    if (!user) {
+        alert("You must Sign In with Google before starting a practice test! This ensures your marks and global leaderboard rank are saved permanently.");
+        signInWithGoogle();
+        return; 
+    }
+
     window.customQData = null; 
-    // Fix applied previously: Removed `localStorage.removeItem(testId);` to stop resets!
     let script = document.createElement('script');
     script.src = scriptSrc + '?t=' + new Date().getTime(); 
     script.onload = () => { openTestEnvironment(chapter, exName); };
@@ -218,12 +210,13 @@ function loadTestScript(chapter, exName, scriptSrc) {
     document.body.appendChild(script);
 }
 
-function openTestEnvironment(chapter,exercise){
+// Now Async to allow Cloud Sync fetching before opening
+async function openTestEnvironment(chapter,exercise){
     document.getElementById('mock-test-environment').style.display='flex';
     exData={ex:exercise,ch:chapter,id:(chapter.replace(/\s+/g,'_')+'_'+exercise.replace(/[:\s]+/g,'_'))};
     document.getElementById("d-ex").innerText=exData.ex;
     document.getElementById("d-ch").innerText=exData.ch;
-    const user=firebase.apps.length&&firebase.auth().currentUser;
+    const user=firebase.auth().currentUser;
     let uName="Guest",uIni="G";
     if(user&&user.displayName){uName=user.displayName;uIni=uName.charAt(0).toUpperCase();}
     document.getElementById("u-name").innerText=uName;
@@ -235,11 +228,39 @@ function openTestEnvironment(chapter,exercise){
         qData = JSON.parse(JSON.stringify(sampleQuestions));
     }
     
-    loadP();renPal();loadQ(0);updateMarksDisplay();
+    await loadP(); 
+    renPal();loadQ(0);updateMarksDisplay();
 }
 
-function saveP(){localStorage.setItem(exData.id,JSON.stringify(qData.map(q=>({st:q.st||"not-visited",so:q.so??null,l:q.l||0,ts:q.ts||0,r:q.r||0}))));}
-function loadP(){let d=localStorage.getItem(exData.id);qData=d?qData.map((q,i)=>{let p=JSON.parse(d)[i];return{...q,st:p?.st||"not-visited",so:p?.so??null,l:p?.l||0,ts:p?.ts||0,r:p?.r||0}}):qData.map(q=>({...q,st:"not-visited",so:null,l:0,ts:0,r:0}));}
+// STRICT FIX: Save progress array to Cloud so it matches across different browsers
+function saveP(){
+    const dataStr = JSON.stringify(qData.map(q=>({st:q.st||"not-visited",so:q.so??null,l:q.l||0,ts:q.ts||0,r:q.r||0})));
+    localStorage.setItem(exData.id, dataStr);
+    
+    const user = firebase.auth().currentUser;
+    if(user) {
+        db.collection("users").doc(user.uid).collection("progress").doc(exData.id).set({ data: dataStr });
+    }
+}
+
+// STRICT FIX: Load progress array from Cloud first (if available), fallback to local
+async function loadP(){
+    const user = firebase.auth().currentUser;
+    let d = localStorage.getItem(exData.id);
+    
+    if(user) {
+        try {
+            const docSnap = await db.collection("users").doc(user.uid).collection("progress").doc(exData.id).get();
+            if(docSnap.exists) {
+                d = docSnap.data().data;
+                localStorage.setItem(exData.id, d); // Update local cache instantly
+            }
+        } catch(e) { console.error("Cloud sync failed, using local.", e); }
+    }
+
+    qData=d?qData.map((q,i)=>{let p=JSON.parse(d)[i];return{...q,st:p?.st||"not-visited",so:p?.so??null,l:p?.l||0,ts:p?.ts||0,r:p?.r||0}}):qData.map(q=>({...q,st:"not-visited",so:null,l:0,ts:0,r:0}));
+}
+
 function startT(){clearInterval(tmr);let s=qData[cIdx].ts||0;updT(s);if(!qData[cIdx].l){tmr=setInterval(()=>{qData[cIdx].ts=++s;updT(s);if(s%5==0)saveP();},1000);}}
 function updT(s){document.getElementById("q-time").innerText=String(Math.floor(s/60)).padStart(2,'0')+":"+String(s%60).padStart(2,'0');}
 
@@ -287,19 +308,16 @@ function chkAns(){
     
     if(q.so===q.c){
         q.st="correct";
-        
+        // STRICT FIX: Increment score directly on Cloud Firestore only. Live Leaderboard will catch it automatically!
         const user = firebase.auth().currentUser;
         if (user) {
-            db.collection("users").doc(user.uid).set({
+            db.collection("users").doc(user.uid).update({
                 questionsSolved: firebase.firestore.FieldValue.increment(1) 
-            }, { merge: true }).then(() => {
-                fetchGlobalLeaderboard(); 
-                globalSolvedCount++;
-                localStorage.setItem('user_total_score', globalSolvedCount);
+            }).catch(err => {
+                db.collection("users").doc(user.uid).set({
+                    questionsSolved: 1, name: user.displayName, photoURL: user.photoURL
+                }, { merge: true });
             });
-        } else {
-            globalSolvedCount++;
-            localStorage.setItem('user_total_score', globalSolvedCount);
         }
     } else {
         q.st="incorrect";
@@ -307,7 +325,7 @@ function chkAns(){
     
     saveP();renQ();updPal();
     updateMarksDisplay();
-    updateChapterProgress(); // Force instant visual update for percentage
+    updateChapterProgress(); 
     
     setTimeout(()=>{
         const solutionCont=document.querySelector(".solution-container");
@@ -375,9 +393,9 @@ window.addEventListener('DOMContentLoaded', () => {
     loopTypewriter();
     initSpaceAnimation();
     animateSpace();
+    initLiveLeaderboard(); // Boot up real-time leaderboard
 });
 
-// PRELOADER & INITIAL CALC
 window.addEventListener('load', () => {
     updateChapterProgress();
     setTimeout(() => {
