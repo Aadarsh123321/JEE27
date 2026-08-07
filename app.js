@@ -34,7 +34,7 @@ const typeDelayMs=90,deleteDelayMs=80,holdDelayMs=2500,pauseDelayMs=500,typedTex
 function loopTypewriter(){const characters=Array.from(textToType);if(isDeleting){if(charIndex>0){charIndex--;typedTextSpan.textContent=characters.slice(0,charIndex).join('');typingTimeout=setTimeout(loopTypewriter,deleteDelayMs);}else{isDeleting=false;typingTimeout=setTimeout(loopTypewriter,pauseDelayMs);}}else{if(charIndex<characters.length){charIndex++;typedTextSpan.textContent=characters.slice(0,charIndex).join('');typingTimeout=setTimeout(loopTypewriter,typeDelayMs);}else{isDeleting=true;typingTimeout=setTimeout(loopTypewriter,holdDelayMs);}}}
 function updateBrandText(newText){clearTimeout(typingTimeout);textToType=newText.toUpperCase();charIndex=0;isDeleting=false;typedTextSpan.textContent="";loopTypewriter();}
 
-// --- 3. NEW FIREBASE CONFIG & LIVE LEADERBOARD LOGIC ---
+// --- 3. FIREBASE CONFIG & LIVE LEADERBOARD LOGIC ---
 const firebaseConfig = {
   apiKey: "AIzaSyAH22AT6fP9cuDAFq8sXBLi9GFu9cvWgE4",
   authDomain: "jee-bb.firebaseapp.com",
@@ -50,7 +50,6 @@ const auth=firebase.auth();
 const db=firebase.firestore(); 
 const loginBtn=document.getElementById('btn-login'),profileWrapper=document.getElementById('profile-wrapper'),dropdown=document.getElementById('profile-dropdown');
 
-// STRICT FIX: Live Global Leaderboard
 function initLiveLeaderboard() {
     const lbContainer = document.getElementById('lb-dynamic-content');
     const lbEmpty = document.getElementById('lb-empty-state');
@@ -110,7 +109,7 @@ auth.onAuthStateChanged(user=>{
                 email: user.email
             };
             if (!docSnap.exists) {
-                data.questionsSolved = 0; // Initialize so sorting works instantly
+                data.questionsSolved = 0; 
             }
             userDocRef.set(data, { merge: true });
         });
@@ -154,13 +153,13 @@ function loadExercises(chapterName,element){
     if(activeCh) activeCh.style.display='block';
 }
 
+
 // --- 5. PRACTICE MODE DYNAMIC SCRIPT INTEGRATION & CLOUD SYNC LOGIC ---
 let exData={ex:"",ch:"",id:""},cIdx=0,tmr=null;
 let qData=[];
-const sampleQuestions=[{id:1,t:'Fallback Question: Test loaded without external script.',o:["A","B","C","D"],c:0,s:"This is a sample because the specific JS file was not linked yet."}];
+const sampleQuestions=[{id:1,t:'Fallback Question: Test loaded without external script.',o:["A","B","C","D"],c:0,s:"This is a sample because the specific JS file was not linked yet.", type:"single"}];
 
 function loadTestScript(chapter, exName, scriptSrc) {
-    // STRICT FIX: Block entry until user is signed in!
     const user = firebase.auth().currentUser;
     if (!user) {
         alert("You must Sign In with Google before starting a practice test! This ensures your marks and global leaderboard rank are saved permanently.");
@@ -179,7 +178,6 @@ function loadTestScript(chapter, exName, scriptSrc) {
     document.body.appendChild(script);
 }
 
-// Now Async to allow Cloud Sync fetching before opening
 async function openTestEnvironment(chapter,exercise){
     document.getElementById('mock-test-environment').style.display='flex';
     exData={ex:exercise,ch:chapter,id:(chapter.replace(/\s+/g,'_')+'_'+exercise.replace(/[:\s]+/g,'_'))};
@@ -201,7 +199,6 @@ async function openTestEnvironment(chapter,exercise){
     renPal();loadQ(0);updateMarksDisplay();
 }
 
-// STRICT FIX: Save progress array to Cloud so it matches across different browsers
 function saveP(){
     const dataStr = JSON.stringify(qData.map(q=>({st:q.st||"not-visited",so:q.so??null,l:q.l||0,ts:q.ts||0,r:q.r||0})));
     localStorage.setItem(exData.id, dataStr);
@@ -212,7 +209,6 @@ function saveP(){
     }
 }
 
-// STRICT FIX: Load progress array from Cloud first (if available), fallback to local
 async function loadP(){
     const user = firebase.auth().currentUser;
     let d = localStorage.getItem(exData.id);
@@ -222,7 +218,7 @@ async function loadP(){
             const docSnap = await db.collection("users").doc(user.uid).collection("progress").doc(exData.id).get();
             if(docSnap.exists) {
                 d = docSnap.data().data;
-                localStorage.setItem(exData.id, d); // Update local cache instantly
+                localStorage.setItem(exData.id, d); 
             }
         } catch(e) { console.error("Cloud sync failed, using local.", e); }
     }
@@ -248,36 +244,116 @@ function loadQ(i){
     startT();renQ();updPal();
 }
 
+
+// --- DYNAMIC RENDERING FOR ALL 4 QUESTION TYPES ---
 function renQ(){
-    let q=qData[cIdx],l=q.l?"locked":"";
+    let q=qData[cIdx], l=q.l?"locked":"";
+    let type = q.type || 'single'; 
     document.getElementById("btn-chk").disabled=q.l;
     document.getElementById("btn-chk").innerText=q.l?"Checked":"Check Answer";
+    
     let h=`<div><h3 style="margin-bottom:15px;line-height:1.5">${q.t}</h3></div><div style="margin-top:25px;display:flex;flex-direction:column;gap:12px">`;
-    q.o.forEach((o,i)=>{
-        let c="";
-        if(q.so===i&&!q.l)c="selected";
-        if(q.l&&q.so===i){if(i===q.c)c="correct";else c="incorrect";}
-        h+=`<label class="option-label ${c} ${l}" onclick="!${q.l}&&selO(${i})"><input type="radio" name="o" ${q.so===i?"checked":""} ${q.l?"disabled":""}><span style="color:#60a5fa;font-weight:bold;flex-shrink:0">${String.fromCharCode(65+i)}</span><span>${o}</span></label>`;
-    });
     
-    let correctLetter = String.fromCharCode(65+q.c);
-    let correctDisplay = `<div style="font-weight:700;color:#10b981;margin-bottom:10px;font-size:16px;">Correct Answer: Option ${correctLetter}</div>`;
+    if (type === 'single') {
+        q.o.forEach((o,i)=>{
+            let c="";
+            if(q.so===i&&!q.l)c="selected";
+            if(q.l&&q.so===i){if(i===q.c)c="correct";else c="incorrect";}
+            h+=`<label class="option-label ${c} ${l}" onclick="!${q.l}&&selO(${i})"><input type="radio" name="o" ${q.so===i?"checked":""} ${q.l?"disabled":""}><span style="color:#60a5fa;font-weight:bold;flex-shrink:0">${String.fromCharCode(65+i)}</span><span>${o}</span></label>`;
+        });
+    } else if (type === 'multi') {
+        let soArr = Array.isArray(q.so) ? q.so : [];
+        q.o.forEach((o,i)=>{
+            let c="";
+            let isSel = soArr.includes(i);
+            let isCor = Array.isArray(q.c) && q.c.includes(i);
+            if(isSel&&!q.l)c="selected";
+            if(q.l&&isSel){if(isCor)c="correct";else c="incorrect";}
+            h+=`<label class="option-label ${c} ${l}" onclick="!${q.l}&&selMulti(${i})"><input type="checkbox" ${isSel?"checked":""} ${q.l?"disabled":""}><span style="color:#60a5fa;font-weight:bold;flex-shrink:0">${String.fromCharCode(65+i)}</span><span>${o}</span></label>`;
+        });
+    } else if (type === 'match' || type === 'numeric') {
+        let val = q.so || "";
+        let imode = type === 'numeric' ? 'inputmode="numeric"' : '';
+        let placeholder = type === 'match' ? 'Type answer in sequence (e.g., PQRS)' : 'Enter numerical answer';
+        let bc = "#374151", bg = "#1f2937";
+        if (q.l) {
+            let isCor = false;
+            if(type === 'match') isCor = String(q.so||"").trim().toUpperCase() === String(q.c||"").trim().toUpperCase();
+            else isCor = String(q.so||"").trim() === String(q.c||"").trim();
+            bc = isCor ? "#10b981" : "#ef4444";
+            bg = isCor ? "rgba(16,185,129,.1)" : "rgba(239,68,68,.1)";
+        } else if (val) {
+            bc = "#60a5fa"; bg = "rgba(96,165,250,.1)";
+        }
+        let inst = type === 'match' ? '<div style="font-size:13px; color:#eab308; margin-bottom:8px; font-weight:600;">Instruction: Type answer in sequence (e.g., PQRS)</div>' : '';
+        h += `${inst}<input type="text" ${imode} value="${String(val).replace(/"/g, '&quot;')}" oninput="selTxt(this.value)" ${q.l ? "disabled" : ""} style="width:100%; padding:16px; border:2px solid ${bc}; border-radius:8px; background:${bg}; color:#fff; font-size:16px; outline:none; font-weight:bold;" placeholder="${placeholder}">`;
+    }
     
-    h+=`</div><div class="solution-container" style="display:${q.l?"block":"none"}">${correctDisplay}<div style="font-weight:700;color:#60a5fa;margin-bottom:5px">Solution / Hint</div><div style="color:#cbd5e1">${q.s}</div></div>`;
+    let correctDisplay = "";
+    if(type === 'single') correctDisplay = `Option ${String.fromCharCode(65+q.c)}`;
+    else if(type === 'multi') correctDisplay = `Options ${q.c.map(x=>String.fromCharCode(65+x)).join(', ')}`;
+    else correctDisplay = `${q.c}`;
+    
+    let correctHTML = `<div style="font-weight:700;color:#10b981;margin-bottom:10px;font-size:16px;">Correct Answer: ${correctDisplay}</div>`;
+    
+    h+=`</div><div class="solution-container" style="display:${q.l?"block":"none"}">${correctHTML}<div style="font-weight:700;color:#60a5fa;margin-bottom:5px">Solution / Hint</div><div style="color:#cbd5e1">${q.s}</div></div>`;
     document.getElementById("q-area").innerHTML=h;
 }
 
-function selO(i){if(qData[cIdx].l)return;qData[cIdx].so=i;qData[cIdx].st="not-answered";saveP();renQ();}
+// --- DYNAMIC INPUT HANDLERS ---
+function selO(i){
+    if(qData[cIdx].l)return;
+    qData[cIdx].so=i;
+    qData[cIdx].st="not-answered";
+    saveP();renQ();
+}
 
+function selMulti(i){
+    if(qData[cIdx].l)return;
+    let arr = Array.isArray(qData[cIdx].so) ? [...qData[cIdx].so] : [];
+    let idx = arr.indexOf(i);
+    if(idx > -1) arr.splice(idx, 1);
+    else arr.push(i);
+    qData[cIdx].so = arr;
+    qData[cIdx].st = "not-answered";
+    saveP();renQ();
+}
+
+function selTxt(v){
+    if(qData[cIdx].l)return;
+    qData[cIdx].so = v;
+    qData[cIdx].st = "not-answered";
+    saveP();
+    let el = document.querySelector("#q-area input[type='text']");
+    if(el && v.trim() !== "") {
+        el.style.borderColor = "#60a5fa";
+        el.style.background = "rgba(96,165,250,.1)";
+    } else if (el) {
+        el.style.borderColor = "#374151";
+        el.style.background = "#1f2937";
+    }
+}
+
+// --- DYNAMIC ANSWER VALIDATION LOGIC ---
 function chkAns(){
     let q=qData[cIdx];
-    if(q.so===null)return alert("Select an option!");
+    let type = q.type || 'single';
+    
+    if (type === 'single' && q.so === null) return alert("Select an option!");
+    if (type === 'multi' && (!Array.isArray(q.so) || q.so.length === 0)) return alert("Select at least one option!");
+    if ((type === 'match' || type === 'numeric') && (!q.so || String(q.so).trim() === "")) return alert("Enter an answer!");
+    
     q.l=1;
     clearInterval(tmr);
     
-    if(q.so===q.c){
+    let isCor = false;
+    if (type === 'single') isCor = (q.so === q.c);
+    else if (type === 'multi') isCor = JSON.stringify([...q.so].sort()) === JSON.stringify([...q.c].sort());
+    else if (type === 'match') isCor = String(q.so).trim().toUpperCase() === String(q.c).trim().toUpperCase();
+    else if (type === 'numeric') isCor = String(q.so).trim() === String(q.c).trim();
+    
+    if(isCor){
         q.st="correct";
-        // STRICT FIX: Increment score directly on Cloud Firestore only. Live Leaderboard will catch it automatically!
         const user = firebase.auth().currentUser;
         if (user) {
             db.collection("users").doc(user.uid).update({
@@ -301,7 +377,23 @@ function chkAns(){
     },100);
 }
 
-function updateMarksDisplay(){let correct=0,totalAttempted=0;qData.forEach(q=>{if(q.l){totalAttempted++;if(q.so===q.c)correct++;}});document.getElementById("d-marks").innerText=`Marks: ${correct*4} | Preview: ${correct}/${qData.length} Correct`;}
+function updateMarksDisplay(){
+    let correct=0,totalAttempted=0;
+    qData.forEach(q=>{
+        if(q.l){
+            totalAttempted++;
+            let type = q.type || 'single';
+            let isCor = false;
+            if (type === 'single') isCor = (q.so === q.c);
+            else if (type === 'multi') isCor = JSON.stringify([...(q.so||[])].sort()) === JSON.stringify([...(q.c||[])].sort());
+            else if (type === 'match') isCor = String(q.so||"").trim().toUpperCase() === String(q.c||"").trim().toUpperCase();
+            else if (type === 'numeric') isCor = String(q.so||"").trim() === String(q.c||"").trim();
+            if(isCor) correct++;
+        }
+    });
+    document.getElementById("d-marks").innerText=`Marks: ${correct*4} | Preview: ${correct}/${qData.length} Correct`;
+}
+
 function nav(d){let n=cIdx+d;if(n>=0&&n<qData.length)loadQ(n);}
 
 function renPal(){
@@ -360,7 +452,7 @@ window.addEventListener('DOMContentLoaded', () => {
     loopTypewriter();
     initSpaceAnimation();
     animateSpace();
-    initLiveLeaderboard(); // Boot up real-time leaderboard
+    initLiveLeaderboard(); 
 });
 
 window.addEventListener('load', () => {
