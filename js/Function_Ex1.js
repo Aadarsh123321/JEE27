@@ -686,4 +686,3 @@ window.customQData = [
         s: "Detailed solution will be updated soon."
     }
 ];
-
